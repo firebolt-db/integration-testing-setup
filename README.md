@@ -1,5 +1,15 @@
 # Integration testing setup action
+
 This action is designed to simplify integration testing for applications that use Firebolt database. This action will create a database, an engine and start the engine. Accepted parameters are
+
+## Versions
+
+There are two versions of this action - Firebolt 1.0 and 2.0 compatible respectively.
+
+- **master** - contains a Firebolt 1.0 version of the action. Largely deprecated and used to test backwards-compatibility of the changes.
+- **new_identity** - branch that contains Firebolt 2.0 version of the action. Any new changes should go here.
+
+## Usage
 
 - **firebolt-username** - Username to use for authentication
 - **firebolt-password** - Password to use for authentication

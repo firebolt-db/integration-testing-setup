@@ -69,7 +69,7 @@ jobs:
 
       - name: Check that the committed bundle is up to date
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npm run bundle
           if [ -n "$(git status --porcelain)" ]; then
             git status --porcelain

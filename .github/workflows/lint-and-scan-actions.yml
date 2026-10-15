@@ -1,6 +1,7 @@
-# Lint (actionlint) and security-scan (zizmor) GitHub Actions workflow files
-# whenever files under .github/ change. zizmor results go to the repository's
-# Security tab (code scanning); use rulesets to block merges on open alerts.
+# Lint (actionlint) and security-scan (zizmor) GitHub Actions workflow files.
+# Runs on every PR (no path filter) because both jobs are required status checks.
+# zizmor results go to the repository's Security tab (code scanning); the
+# ruleset's code scanning rule blocks merges on open alerts.
 
 name: Lint & Scan GitHub Actions
 
@@ -10,7 +11,6 @@ on:
     paths: [".github/**"]
   pull_request:
     branches: ["**"]
-    paths: [".github/**"]
 
 permissions: {}
 

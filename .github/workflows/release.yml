@@ -16,8 +16,7 @@ env:
   # Bump this when the current master is moved to a releases/vN branch.
   MAINLINE_MAJOR: v2
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: release
@@ -26,11 +25,14 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and push the vX.Y.Z / vX tags
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate version against branch
         id: version
@@ -62,14 +64,18 @@ jobs:
             fi
             echo "::notice::Tag v$VERSION already exists on $GITHUB_SHA; resuming the release"
           fi
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
-          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=v$VERSION"
+            echo "major=$MAJOR"
+            echo "latest=$LATEST"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.x'
+          # Never restore a cache into a release build (cache poisoning).
+          package-manager-cache: false
 
       - name: Check that the committed bundle is up to date
         run: |
@@ -95,10 +101,13 @@ jobs:
 
       - name: Move major version tag
         env:
+          GH_TOKEN: ${{ github.token }}
           MAJOR: ${{ steps.version.outputs.major }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898333+github-actions[bot]@users.noreply.github.com'
           git tag -fa "$MAJOR" -m "Point $MAJOR at $TAG" "$GITHUB_SHA"
+          # Checkout doesn't persist credentials; authenticate git only for this push.
+          gh auth setup-git
           git push origin "refs/tags/$MAJOR" --force

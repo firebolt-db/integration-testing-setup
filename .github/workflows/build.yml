@@ -2,6 +2,7 @@ name: Check if build is up to date
 
 on:
   push:
+  pull_request:
 
 permissions: {}
 

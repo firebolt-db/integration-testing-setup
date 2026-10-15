@@ -4,10 +4,14 @@ This action is designed to simplify integration testing for applications that us
 
 ## Versions
 
-There are two versions of this action - Firebolt 1.0 and 2.0 compatible respectively.
+There are two major versions of this action, one per Firebolt generation:
 
-- **master** - contains a Firebolt 1.0 version of the action. Largely deprecated and used to test backwards-compatibility of the changes.
-- **new_identity** - branch that contains Firebolt 2.0 version of the action. Any new changes should go here.
+| Version | Firebolt | Branch | Status |
+|---------|----------|--------|--------|
+| `@v2` | Firebolt 2.0 | `master` | Active development. New changes go here. |
+| `@v1` | Firebolt 1.0 | `releases/v1` | Maintenance only. Largely deprecated. |
+
+This branch (`releases/v1`) contains the Firebolt 1.0 version of the action.
 
 ## Usage
 
@@ -20,5 +24,9 @@ There are two versions of this action - Firebolt 1.0 and 2.0 compatible respecti
 - **api-endpoint [Optional]** -  Environment endpoint to use to connect (Default: `api.app.firebolt.io`)
 
 ## Release procedure
-Release is done by creating release in GitHub with a tag. Use [semantic versioning](https://semver.org/) to determine how a tag name. In general it should look like `v1.0.1`.
-Once a release is created a relevant GitHub action will bump the major version tag to point at your newly created tag. e.g. if you've created v1.2.3, GitHub will run and point v1 -> v1.2.3. This ensures all calls to this action with a major version tag are updated to use the latest release.
+Releases are made with the **Release** workflow (Actions → Release → Run workflow):
+
+1. In **Use workflow from**, pick the branch to release: `master` for v2, `releases/v1` for v1.
+2. Enter the version using [semantic versioning](https://semver.org/), e.g. `1.0.4`. Its major version must match the branch, otherwise the workflow fails.
+
+The workflow checks that the committed bundle in `dist/` is up to date, creates the `vX.Y.Z` tag and GitHub release, and moves the major version tag (e.g. `v1`) to it. This ensures all calls to this action with a major version tag use the latest release.

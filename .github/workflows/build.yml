@@ -1,0 +1,30 @@
+name: Check if build is up to date
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies without pulling new versions
+        run: npm ci
+
+      - name: Build project
+        run: npm run bundle
+
+      - name: Fail if the project was not built
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "The committed bundle in dist/ is out of date. Run 'npm run bundle' and commit the result."
+            exit 1
+          fi

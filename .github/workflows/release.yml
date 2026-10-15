@@ -1,0 +1,96 @@
+name: Release
+
+# Run from the "Use workflow from" branch you want to release:
+#   master       -> releases the current major version (MAINLINE_MAJOR below)
+#   releases/vN  -> releases a maintenance version of major vN
+# Creates the vX.Y.Z tag and GitHub release, then moves the vX major tag to it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 2.7.0. Its major version must match the selected branch.'
+        required: true
+
+env:
+  # Bump this when the current master is moved to a releases/vN branch.
+  MAINLINE_MAJOR: v2
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate version against branch
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT_VERSION#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '$INPUT_VERSION' is not of the form X.Y.Z"
+            exit 1
+          fi
+          case "$GITHUB_REF_NAME" in
+            master)      EXPECTED_MAJOR="$MAINLINE_MAJOR"; LATEST=true ;;
+            releases/v*) EXPECTED_MAJOR="${GITHUB_REF_NAME#releases/}"; LATEST=false ;;
+            *)
+              echo "::error::Releases can only be made from master or releases/vN, not '$GITHUB_REF_NAME'"
+              exit 1 ;;
+          esac
+          MAJOR="v${VERSION%%.*}"
+          if [ "$MAJOR" != "$EXPECTED_MAJOR" ]; then
+            echo "::error::Branch '$GITHUB_REF_NAME' releases $EXPECTED_MAJOR.x, but version v$VERSION is $MAJOR"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION already exists"
+            exit 1
+          fi
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.x'
+
+      - name: Check that the committed bundle is up to date
+        run: |
+          npm ci
+          npm run bundle
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "::error::The committed bundle in dist/ is out of date. Run 'npm run bundle' and commit the result."
+            exit 1
+          fi
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          LATEST: ${{ steps.version.outputs.latest }}
+        run: |
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes --latest="$LATEST"
+
+      - name: Move major version tag
+        env:
+          MAJOR: ${{ steps.version.outputs.major }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898333+github-actions[bot]@users.noreply.github.com'
+          git tag -fa "$MAJOR" -m "Point $MAJOR at $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$MAJOR" --force

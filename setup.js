@@ -1,96 +1,76 @@
 const core = require('@actions/core');
-const { exec, spawnSync } = require("child_process");
-const path = require('path');
-const fb_env = {
-  'FIREBOLT_USER': core.getInput('firebolt-username'),
-  'FIREBOLT_PASSWORD': core.getInput('firebolt-password'),
-  'FIREBOLT_SERVER': core.getInput('api-endpoint'),
-  'FIREBOLT_DEFAULT_REGION': core.getInput('region'),
-  'FIREBOLT_ENGINE_SPEC': core.getInput('instance-type'),
-  'FIREBOLT_ENGINE_SCALE': core.getInput('engine-scale')
+
+const instanceType = core.getInput('instance-type');
+const engineScale = parseInt(core.getInput('engine-scale'));
+const suffix = core.getInput('db_suffix').replaceAll(".", "").replaceAll("-", "");
+
+import { Firebolt } from 'firebolt-sdk';
+const { retryWithBackoff } = require('./util');
+
+const firebolt = Firebolt({
+    apiEndpoint: core.getInput('api-endpoint'),
+});
+
+await firebolt.connect({
+    auth: {
+        client_id: core.getInput('firebolt-client-id'),
+        client_secret: core.getInput('firebolt-client-secret'),
+    },
+    account: core.getInput('account')
+});
+
+// Setting not user-facing settings
+if (core.getInput('engine-version')) {
+    console.log(`Setting engine version to ${core.getInput('engine-version')}`);
+    process.env.FB_INTERNAL_OPTIONS_ENGINE_VERSION = core.getInput('engine-version');
+} else {
+    console.log(`Using default engine version`);
 }
 
-const action_workdir = path.join(__dirname, "../../")
+const databaseName = `integration_testing_${suffix}_${Date.now()}`;
+const database = await retryWithBackoff(async () => {
+  return await firebolt.resourceManager.database.create(databaseName);
+});
 
-core.info("Action workdir: " + action_workdir)
+core.setOutput('database_name', database.name);
+core.saveState('database_name', database.name);
 
+// Create engine
+const engine = await retryWithBackoff(async () => {
+  return await firebolt.resourceManager.engine.create(databaseName, {
+    scale: engineScale,
+    spec: instanceType
+  });
+});
 
-function resolve_local_file(file_path) {
-  return path.join(action_workdir, file_path)
-}
+// Attach engine to database
+await retryWithBackoff(async () => {
+  await firebolt.resourceManager.engine.attachToDatabase(engine, database);
+});
 
-function setup_virtualenv(on_success, on_error) {
-  exec('rm -r ' + resolve_local_file('.venv') + ' || true && python -m venv ' + resolve_local_file('.venv'),
-    function (error, stdout, stderr) {
-      if (error != null) {
-        return on_error(error.message)
-      }
-      const python_dir = path.join(resolve_local_file('.venv'), process.platform == 'win32' ? '/Scripts' : '/bin/');
-      return on_success(python_dir)
-    }
-  )
-}
+const stoppedEngineName = databaseName + "_stopped"
+// Create stopped engine
+const stoppedEngine = await retryWithBackoff(async () => {
+  return await firebolt.resourceManager.engine.create(stoppedEngineName, {
+    scale: engineScale,
+    spec: instanceType
+  });
+});
 
-function install_python_dependencies(python_dir, on_success, on_error) {
-  exec(path.join(python_dir, "pip") + ' install "firebolt-sdk>=0.16.0,<1.0.0" pydantic==1.10.10 retry',
-    function (error, stdout, stderr) {
-      error == null ? on_success(python_dir) : on_error(error.message);
-    }
-  )
-}
+// Attach stopped engine to database
+await retryWithBackoff(async () => {
+  await firebolt.resourceManager.engine.attachToDatabase(stoppedEngine, database);
+});
 
-function start_db(python_dir, on_success, on_error) {
-  const result = spawnSync(path.join(python_dir, 'python'),
-    [resolve_local_file('scripts/start_database.py'), core.getInput('db_suffix')],
-    { env: fb_env }
-  );
-  return result.stderr.toString().length == 0 ? on_success(result.stdout.toString().trim('\n'), python_dir) : on_error(result.stderr.toString());
-}
+// Start engine
+await retryWithBackoff(async () => {
+  await engine.start();
+});
 
-function start_engine(db_name, python_dir, on_success, on_error) {
-  const result = spawnSync(path.join(python_dir, 'python'),
-    [resolve_local_file('scripts/start_engine.py'), db_name],
-    { env: fb_env }
-  );
-  if (result.stderr.toString().length != 0) {
-    return on_error(result.stderr.toString());
-  }
-  const values = result.stdout.toString().split(' ');
-  const engine_name = values[0].trim('\n');
-  const engine_url = values[1].trim('\n');
-  const stopped_engine_name = values[2].trim('\n');
-  const stopped_engine_url = values[3].trim('\n');
-  return on_success(engine_name, engine_url, stopped_engine_name, stopped_engine_url);
-}
+core.setOutput('engine_name', engine.name);
+core.saveState('engine_name', engine.name);
+core.setOutput('engine_url', engine.endpoint);
 
-try {
-  setup_virtualenv(pp => {
-    core.saveState('python_path', pp);
-    install_python_dependencies(pp,
-      pp => start_db(pp,
-        (db_name, pp) => {
-          core.setOutput('database_name', db_name);
-          core.saveState('database_name', db_name);
-          start_engine(
-            db_name, pp,
-            (en, eu, sen, seu) => {
-              core.setOutput('engine_name', en);
-              core.saveState('engine_name', en);
-              core.setOutput('engine_url', eu);
-
-              core.setOutput('stopped_engine_name', sen);
-              core.saveState('stopped_engine_name', sen);
-              core.setOutput('stopped_engine_url', seu);
-            },
-            err_msg => core.setFailed(err_msg)
-          )
-        },
-        err_msg => core.setFailed(err_msg)
-      ),
-      err_msg => core.setFailed(err_msg)
-    ), err_msg => core.setFailed(err_msg)
-  })
-
-} catch (error) {
-  core.setFailed(error.message);
-}
+core.setOutput('stopped_engine_name', stoppedEngine.name);
+core.saveState('stopped_engine_name', stoppedEngine.name);
+core.setOutput('stopped_engine_url', stoppedEngine.endpoint);
